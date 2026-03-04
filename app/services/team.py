@@ -1403,8 +1403,6 @@ class TeamService:
                 }
 
             # 5. 更新成员数并二次校验邀请是否真的生效 (防止接口返回 200 但实际未加入)
-            # 延时 2 秒再同步，等待 API 状态生效
-            await asyncio.sleep(2)
             sync_res = await self.sync_team_info(team_id, db_session)
             member_emails = sync_res.get("member_emails", [])
             

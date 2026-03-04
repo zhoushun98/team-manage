@@ -362,9 +362,6 @@ class RedeemFlowService:
                         )
                         db_session.add(redemption_record)
                         
-                    # 延时 2 秒再同步，等待 ChatGPT API 状态生效 (防止虚假成功)
-                    await asyncio.sleep(2)
-                    
                     # 同步最新成员数并校验邀请是否生效
                     sync_res = await self.team_service.sync_team_info(team_id_final, db_session)
                     
