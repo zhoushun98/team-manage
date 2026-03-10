@@ -86,16 +86,28 @@ class TeamService:
             return True
 
         # 2. 判定是否为“席位已满”错误
-        full_keywords = ["maximum number of seats", "reached maximum number of seats"]
+        full_keywords = ["maximum number of seats", "reached maximum number of seats", "no seats available"]
         if any(kw in error_msg for kw in full_keywords):
             logger.warning(f"检测到 Team 席位已满 (msg={error_msg}), 更新 Team {team.id} ({team.email}) 状态为 full")
             team.status = "full"
-            # 修正当前成员数以防万一
-            if team.current_members < team.max_members:
+            # 学习真实的席位上限: 如果当前探测到的成员数小于预设的最大值，说明该团队实际容量较小
+            if team.current_members > 0 and team.current_members < team.max_members:
+                logger.info(f"修正 Team {team.id} 的最大成员数: {team.max_members} -> {team.current_members}")
+                team.max_members = team.current_members
+            elif team.current_members >= team.max_members:
+                # 进位修正，确保逻辑闭环
                 team.current_members = team.max_members
+
             if not db_session.in_transaction():
                 await db_session.commit()
             return True
+
+        # 2.5 判定是否为“已在团队中” (这通常被视为成功的变种)
+        already_in_keywords = ["already in workspace", "already in team", "already a member"]
+        if any(kw in error_msg for kw in already_in_keywords):
+            logger.info(f"Team {team.id} 提示用户已在团队中: {error_msg}")
+            # 虽然提示错误，但在业务逻辑上应视为加入成功
+            return False # 返回 False 表示不是致命故障，允许后续逻辑（如下车/同步）继续
 
         # 3. 判定是否为 Token 过期 (需刷新)
         is_token_expired = error_code == "token_expired" or "token_expired" in error_msg or "token is expired" in error_msg
@@ -1446,18 +1458,27 @@ class TeamService:
                     "error": f"发送邀请失败: {invite_result['error']}"
                 }
 
-            # 5. 更新成员数并二次校验邀请是否真的生效 (防止接口返回 200 但实际未加入)
-            sync_res = await self.sync_team_info(team_id, db_session)
-            member_emails = sync_res.get("member_emails", [])
+            # 5. 更新成员数并二次校验邀请是否真的生效 (循环检测 3 次，防止接口返回 200 但实际延迟入库)
+            is_verified = False
+            for i in range(3):
+                await asyncio.sleep(5)
+                sync_res = await self.sync_team_info(team_id, db_session)
+                member_emails = [m.lower() for m in sync_res.get("member_emails", [])]
+                if email.lower() in member_emails:
+                    is_verified = True
+                    logger.info(f"Team {team_id} [add_member] 同步确认成功 (尝试第 {i+1} 次)")
+                    break
+                if i < 2:
+                    logger.warning(f"Team {team_id} [add_member] 尚未见到成员 {email}，准备第 {i+2} 次重试...")
             
-            if email.lower() not in [m.lower() for m in member_emails]:
-                logger.error(f"检测到“虚假成功”: Team {team_id} 发送邀请返回成功，但成员列表中未见该邮箱 {email}")
+            if not is_verified:
+                logger.error(f"检测到“虚假成功”: Team {team_id} 发送邀请返回成功，但经过 3 次同步校验均未见该邮箱 {email}")
                 # 标记错误
                 await self._handle_api_error({"success": False, "error": "邀请发送成功但同步列表未见成员", "error_code": "ghost_success"}, team, db_session)
                 return {
                     "success": False,
                     "message": None,
-                    "error": "邀请发送成功但同步成员列表校验失败，该 Team 账号可能存在异常。"
+                    "error": "邀请发送成功但 3 次同步成员列表校验均失败，该 Team 账号可能存在延迟或异常。建议稍后手动同步。"
                 }
 
             await db_session.commit()

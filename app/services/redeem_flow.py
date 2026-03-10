@@ -230,10 +230,18 @@ class RedeemFlowService:
                     
                     if not invite_res["success"]:
                         err = invite_res.get("error", "邀请失败")
-                        if any(kw in str(err).lower() for kw in ["maximum number of seats", "full"]):
-                            target_team.status = "full"
-                            raise Exception("该 Team 席位已达到上限，请重试")
-                        raise Exception(err)
+                        err_str = str(err).lower()
+                        
+                        # 3.1 处理“已在 Team 中”的情况，视为成功
+                        if any(kw in err_str for kw in ["already in workspace", "already in team", "already a member"]):
+                            logger.info(f"用户 {email} 已经在 Team {team_id_final} 中，视为兑换成功")
+                        else:
+                            # 3.2 处理“席位已满”的情况
+                            if any(kw in err_str for kw in ["maximum number of seats", "full", "no seats"]):
+                                # 注意：此处的赋值在 raise 后会被回滚，因此在 except 块中还需要额外处理
+                                target_team.status = "full"
+                                raise Exception(f"该 Team 席位已由 API 判定为满员 (API Error: {err})")
+                            raise Exception(err)
 
                     # 4. 更新数据库状态
                     rc.status = "used"
@@ -262,9 +270,17 @@ class RedeemFlowService:
                 # 事务完成提交
                 logger.info(f"兑换核心步骤执行成功: {email} -> Team {team_id_final}")
                 
-                # 5. 后置异步任务
-                await asyncio.sleep(2)
-                await self.team_service.sync_team_info(team_id_final, db_session)
+                # 5. 后置异步任务 (循环检测 3 次，确保 API 数据同步)
+                for i in range(3):
+                    await asyncio.sleep(5)
+                    sync_res = await self.team_service.sync_team_info(team_id_final, db_session)
+                    member_emails = [m.lower() for m in sync_res.get("member_emails", [])]
+                    if email.lower() in member_emails:
+                        logger.info(f"Team {team_id_final} 同步确认成功 (尝试第 {i+1} 次)")
+                        break
+                    if i < 2:
+                        logger.warning(f"Team {team_id_final} 同步尚未见到成员 {email}，准备第 {i+2} 次重试...")
+                
                 try:
                     asyncio.create_task(notification_service.check_and_notify_low_stock())
                 except:
@@ -294,8 +310,21 @@ class RedeemFlowService:
                 if any(kw in last_error for kw in ["不存在", "已使用", "已有正在使用", "质保已过期"]):
                     return {"success": False, "error": last_error}
 
-                if not team_id and ("已满" in last_error or "seats" in last_error.lower()):
-                    current_target_team_id = None
+                # 判定是否需要永久标记为“满员” (独立事务中执行，防止被主流程回滚)
+                if any(kw in last_error.lower() for kw in ["已满", "seats", "full"]):
+                    try:
+                        # 重新查询并更新，确保不在主事务回滚的影响下
+                        if not team_id:
+                            # 如果是自动选择的 ID 报错了，我们去更新数据库中的那个 ID
+                            from sqlalchemy import update as sqlalchemy_update
+                            await db_session.execute(
+                                sqlalchemy_update(Team).where(Team.id == team_id_final).values(status="full")
+                            )
+                            await db_session.commit()
+                            logger.info(f"已在独立提交中将 Team {team_id_final} 标记为 full")
+                        current_target_team_id = None
+                    except:
+                        pass
                 
                 if attempt < max_retries - 1:
                     await asyncio.sleep(1.5 * (attempt + 1))
