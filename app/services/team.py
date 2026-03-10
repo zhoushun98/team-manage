@@ -1701,37 +1701,6 @@ class TeamService:
                 "error": f"获取列表失败: {str(e)}"
             }
 
-    async def get_total_available_spots(
-        self,
-        db_session: AsyncSession
-    ) -> int:
-        """
-        获取剩余车位总数
-
-        Args:
-            db_session: 数据库会话
-
-        Returns:
-            剩余车位总数
-        """
-        try:
-            # 计算所有 active Team 的剩余车位总和
-            # remaining = max_members - current_members
-            stmt = select(
-                func.sum(Team.max_members - Team.current_members)
-            ).where(
-                Team.status == "active",
-                Team.current_members < Team.max_members
-            )
-            
-            result = await db_session.execute(stmt)
-            total_spots = result.scalar() or 0
-            
-            return int(total_spots)
-
-        except Exception as e:
-            logger.error(f"获取剩余车位失败: {e}")
-            return 0
 
 
 
@@ -2035,7 +2004,10 @@ class TeamService:
         """
         try:
             # 统计所有状态为 active 的 Team 的剩余位置
-            stmt = select(func.sum(Team.max_members - Team.current_members)).where(Team.status == "active")
+            stmt = select(func.sum(Team.max_members - Team.current_members)).where(
+                Team.status == "active",
+                Team.current_members < Team.max_members
+            )
             result = await db_session.execute(stmt)
             return result.scalar() or 0
         except Exception as e:

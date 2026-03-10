@@ -36,7 +36,7 @@ async def redeem_page(
         from app.services.team import TeamService
         
         team_service = TeamService()
-        remaining_spots = await team_service.get_total_available_spots(db)
+        remaining_spots = await team_service.get_total_available_seats(db)
 
         logger.info(f"用户访问兑换页面，剩余车位: {remaining_spots}")
 
