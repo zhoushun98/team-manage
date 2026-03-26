@@ -7,12 +7,15 @@
     <title>{% block title %}GPT Team 管理系统{% endblock %}</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', path='/favicon.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+    {% if user %}
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/admin-dark.css') }}">
+    {% endif %}
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     {% block extra_css %}{% endblock %}
 </head>
 
-<body class="bg-gray-50 text-slate-900">
+<body class="bg-gray-50 text-slate-900{% if user %} admin-theme{% endif %}">
     {% if user %}
     <!-- 导航栏 -->
     <nav class="navbar">
@@ -72,6 +75,23 @@
             {% block content %}{% endblock %}
         </main>
     </div>
+
+    <!-- 登出确认模态框 -->
+    <div id="logoutConfirmModal" class="modal-overlay">
+        <div class="modal logout-confirm-modal">
+            <div class="modal-header">
+                <h3>确认登出</h3>
+                <button id="logoutCloseBtn" class="modal-close" type="button">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="logout-confirm-text">确定要登出吗？</p>
+                <div class="logout-confirm-actions">
+                    <button id="logoutCancelBtn" type="button" class="btn btn-secondary">取消</button>
+                    <button id="logoutConfirmBtn" type="button" class="btn btn-primary">确定登出</button>
+                </div>
+            </div>
+        </div>
+    </div>
     {% else %}
     <!-- 未登录时的内容 -->
     <div class="auth-container">
@@ -80,10 +100,7 @@
     {% endif %}
 
     <!-- 页脚 -->
-    <footer class="footer">
-        <p>&copy; 2026 <a href="https://github.com/tibbar213/team-manage" target="_blank" class="footer-link">GPT Team
-                管理系统</a> v0.1.0</p>
-    </footer>
+    <footer class="footer"></footer>
 
     <script>
         function toggleSidebar() {

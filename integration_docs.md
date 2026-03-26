@@ -32,6 +32,7 @@
 - **认证方式**:
   1. **Session 认证**: 浏览器访问时自动使用。
   2. **API Key 认证**: 对接程序建议使用此方式。在 `Header` 中添加 `X-API-Key`。
+     - Note: this API key is scoped to `/admin/teams/import` only and cannot access other `/admin/*` endpoints.
 - **配置位置**: 管理员后台 -> 系统设置 -> 库存预警 Webhook -> API Key。
 
 ### 导入模式 A：单账号导入 (Single)

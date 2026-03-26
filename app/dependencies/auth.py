@@ -4,7 +4,6 @@
 """
 import logging
 from fastapi import Request, HTTPException, status
-from fastapi.responses import RedirectResponse
 
 logger = logging.getLogger(__name__)
 
@@ -35,32 +34,59 @@ def get_current_user(request: Request) -> dict:
     return user
 
 
-async def require_admin(request: Request) -> dict:
+def _get_session_admin(request: Request) -> dict | None:
     """
-    要求管理员权限
-    检查用户是否已登录且具有管理员权限, 或者提供有效的 X-API-Key
+    Return admin user from session if present.
     """
-    # 1. 首先尝试 Session 认证
     user = request.session.get("user")
     if user and user.get("is_admin"):
         return user
+    return None
 
-    # 2. 如果 Session 不行，尝试 Header 认证 (X-API-Key)
+
+async def require_admin(request: Request) -> dict:
+    """
+    Require admin session authentication only.
+    """
+    user = _get_session_admin(request)
+    if user:
+        return user
+
+    logger.warning("认证失败: 需要管理员 Session")
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="需要管理员登录"
+    )
+
+
+async def require_team_import_access(request: Request) -> dict:
+    """
+    Authorize team import access.
+    Accepts admin session or import-scoped X-API-Key.
+    """
+    user = _get_session_admin(request)
+    if user:
+        return user
+
     api_key_header = request.headers.get("X-API-Key")
     if api_key_header:
         from app.database import AsyncSessionLocal
         from app.services.settings import settings_service
-        
+
         async with AsyncSessionLocal() as db:
             api_key = await settings_service.get_setting(db, "api_key")
-            if api_key and api_key_header == api_key:
-                return {"username": "api_user", "is_admin": True}
+            if api_key and api_key_header.strip() == api_key:
+                return {
+                    "username": "api_import_user",
+                    "is_admin": False,
+                    "scopes": ["team:import"],
+                    "auth_method": "api_key"
+                }
 
-    # 3. 都没有权限
-    logger.warning("认证失败: 未登录或 API Key 错误")
+    logger.warning("导入接口认证失败: 未登录且 API Key 无效")
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="未登录或 API Key 无效"
+        detail="未登录或导入 API Key 无效"
     )
 
 

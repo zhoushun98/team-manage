@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
 from app.database import get_db
-from app.dependencies.auth import require_admin
+from app.dependencies.auth import require_admin, require_team_import_access
 from app.services.team import TeamService
 from app.services.redemption import RedemptionService
 from app.utils.time_utils import get_now
@@ -256,7 +256,7 @@ async def update_team(
 async def team_import(
     import_data: TeamImportRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(require_admin)
+    current_user: dict = Depends(require_team_import_access)
 ):
     """
     处理 Team 导入
@@ -264,7 +264,7 @@ async def team_import(
     Args:
         import_data: 导入数据
         db: 数据库会话
-        current_user: 当前用户（需要登录）
+        current_user: 当前调用方（管理员 Session 或导入 API Key）
 
     Returns:
         导入结果

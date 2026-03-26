@@ -39,7 +39,8 @@ function formatDateTime(dateString) {
 
 // 登出函数
 async function logout() {
-    if (!confirm('确定要登出吗?')) {
+    const shouldLogout = await openLogoutConfirm();
+    if (!shouldLogout) {
         return;
     }
 
@@ -61,6 +62,69 @@ async function logout() {
     } catch (error) {
         showToast('网络错误', 'error');
     }
+}
+
+function openLogoutConfirm() {
+    const modal = document.getElementById('logoutConfirmModal');
+    if (!modal) {
+        return Promise.resolve(confirm('确定要登出吗?'));
+    }
+
+    const confirmBtn = document.getElementById('logoutConfirmBtn');
+    const cancelBtn = document.getElementById('logoutCancelBtn');
+    const closeBtn = document.getElementById('logoutCloseBtn');
+
+    if (!confirmBtn || !cancelBtn || !closeBtn) {
+        return Promise.resolve(confirm('确定要登出吗?'));
+    }
+
+    return new Promise((resolve) => {
+        let settled = false;
+
+        function finalize(result) {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve(result);
+        }
+
+        function onConfirm() {
+            finalize(true);
+        }
+
+        function onCancel() {
+            finalize(false);
+        }
+
+        function onOverlayClick(event) {
+            if (event.target === modal) {
+                finalize(false);
+            }
+        }
+
+        function onEsc(event) {
+            if (event.key === 'Escape') {
+                finalize(false);
+            }
+        }
+
+        function cleanup() {
+            confirmBtn.removeEventListener('click', onConfirm);
+            cancelBtn.removeEventListener('click', onCancel);
+            closeBtn.removeEventListener('click', onCancel);
+            modal.removeEventListener('click', onOverlayClick);
+            document.removeEventListener('keydown', onEsc);
+            hideModal('logoutConfirmModal');
+        }
+
+        confirmBtn.addEventListener('click', onConfirm);
+        cancelBtn.addEventListener('click', onCancel);
+        closeBtn.addEventListener('click', onCancel);
+        modal.addEventListener('click', onOverlayClick);
+        document.addEventListener('keydown', onEsc);
+
+        showModal('logoutConfirmModal');
+    });
 }
 
 // API 调用封装
